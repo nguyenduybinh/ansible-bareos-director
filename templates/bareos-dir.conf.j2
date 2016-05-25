@@ -1,0 +1,286 @@
+Director {                            # define myself
+  Name = {{ director_hostname }}-dir
+  QueryFile = "/usr/lib/bareos/scripts/query.sql"
+  Maximum Concurrent Jobs = 10
+  Password = "{{ console_passwd }}"         # Console password
+  Messages = Daemon
+  Auditing = yes
+}
+# Client (File Services) to backup
+Client {
+  Name = {{ director_hostname }}-fd
+  Address = {{ director_address }}
+  Password = "{{ client_passwd }}"          # password for FileDaemon
+}
+
+#
+# Definition of file storage device
+#
+Storage {
+  Name = File
+# Do not use "localhost" here
+  Address = {{ director_address }}                # N.B. Use a fully qualified name here
+  Password = "{{ storage_passwd }}"
+  Device = FileStorage
+  Media Type = File
+}
+
+{% if clients is defined %}
+{% for host in clients %}
+Client {
+  Name = {{ host.hostname }}-fd
+  Address = {{ host.address }}
+  Password = "{{ client_passwd }}"          # password for FileDaemon
+  File Retention = 30 days            # 30 days
+  Job Retention = 6 months            # six months
+  AutoPrune = no                      # Prune expired Jobs/Files
+}
+
+{% endfor %}
+{% endif %}
+
+{% if storages is defined %}
+{% for storage in storages %}
+Storage {
+  Name = {{ storage.hostname }}
+# Do not use "localhost" here
+  Address = {{ storage.address }}           # N.B. Use a fully qualified name here
+  Password = "{{ storage_passwd }}"
+  Device = {{ device_type }}
+  Media Type = {{ media_type }}
+}
+
+{% endfor %}
+{% endif %}
+#
+# Reasonable message delivery -- send most everything to email address and to the console
+#
+Messages {
+  Name = Standard
+  mailcommand = "/usr/bin/bsmtp -h localhost -f \"\(Bareos\) \<%r\>\" -s \"Bareos: %t %e of %c %l\" %r"
+  operatorcommand = "/usr/bin/bsmtp -h localhost -f \"\(Bareos\) \<%r\>\" -s \"Bareos: Intervention needed for %j\" %r"
+  mail = root@localhost = all, !skipped, !audit # (#02)
+  operator = root@localhost = mount     # (#03)
+  console = all, !skipped, !saved, !audit
+  append = "/var/log/bareos/bareos.log" = all, !skipped, !audit
+  catalog = all, !audit
+}
+
+#
+# Message delivery for daemon messages (no job).
+#
+Messages {
+  Name = Daemon
+  mailcommand = "/usr/bin/bsmtp -h localhost -f \"\(Bareos\) \<%r\>\" -s \"Bareos daemon message\" %r"
+  mail = root@localhost = all, !skipped, !audit # (#02)
+  console = all, !skipped, !saved, !audit
+  append = "/var/log/bareos/bareos.log" = all, !skipped, !audit
+  append = "/var/log/bareos/bareos-audit.log" = audit
+}
+#
+# Restricted console used by tray-monitor to get the status of the director
+#
+Console {
+  Name = {{ director_hostname }}-mon
+  Password = "{{ director_restrict_passwd }}"
+  CommandACL = status, .status
+  JobACL = *all*
+}
+
+#
+# Generic catalog service
+#
+Catalog {
+  Name = {{ catalog_name }}
+  # Uncomment the following lines if you want the dbi driver
+  # dbdriver = "dbi:postgresql"; dbaddress = 127.0.0.1; dbport =
+  #dbdriver = "postgresql"
+  dbdriver = "{{ db_driver }}"
+  dbname = "bareos"
+  dbuser = "bareos"
+  dbpassword = ""
+}
+JobDefs {
+  Name = "DefaultJob"
+  Type = Backup
+  Level = Incremental
+  Client = {{ director_hostname }}-fd
+  FileSet = "SelfTest"                     # selftest fileset                            (#13)
+  Schedule = "WeeklyCycle"
+  Storage = File
+  Messages = Standard
+  Pool = Incremental
+  Priority = 10
+  Write Bootstrap = "/var/lib/bareos/%c.bsr"
+  Full Backup Pool = Full                  # write Full Backups into "Full" Pool         (#05)
+  Differential Backup Pool = Differential  # write Diff Backups into "Differential" Pool (#08)
+  Incremental Backup Pool = Incremental    # write Incr Backups into "Incremental" Pool  (#11)
+}
+Job {
+  Name = "BackupClient1"
+  JobDefs = "DefaultJob"
+}
+
+#
+# Backup the catalog database (after the nightly save)
+#
+Job {
+  Name = "BackupCatalog"
+  JobDefs = "DefaultJob"
+  Level = Full
+  FileSet="Catalog"
+  Schedule = "WeeklyCycleAfterBackup"
+
+  # This creates an ASCII copy of the catalog
+  # Arguments to make_catalog_backup.pl are:
+  #  make_catalog_backup.pl <catalog-name>
+  RunBeforeJob = "/usr/lib/bareos/scripts/make_catalog_backup.pl MyCatalog"
+
+  # This deletes the copy of the catalog
+  RunAfterJob  = "/usr/lib/bareos/scripts/delete_catalog_backup"
+
+  # This sends the bootstrap via mail for disaster recovery.
+  # Should be sent to another system, please change recipient accordingly
+  Write Bootstrap = "|/usr/bin/bsmtp -h localhost -f \"\(Bareos\) \" -s \"Bootstrap for Job %j\" root@localhost" # (#01)
+  Priority = 11                   # run after main backup
+}
+Job {
+  Name = "RestoreFiles"
+  Type = Restore
+  Client={{ director_hostname }}-fd
+  FileSet = "Linux All"
+  Storage = File
+  Pool = Incremental
+  Messages = Standard
+  Where = /tmp/bareos-restores
+}
+
+
+FileSet {
+  Name = "Windows All Drives"
+  Enable VSS = yes
+  Include {
+    Options {
+      Signature = MD5
+      Drive Type = fixed
+      IgnoreCase = yes
+      WildFile = "[A-Z]:/pagefile.sys"
+      WildDir = "[A-Z]:/RECYCLER"
+      WildDir = "[A-Z]:/$RECYCLE.BIN"
+      WildDir = "[A-Z]:/System Volume Information"
+      Exclude = yes
+    }
+    File = /
+  }
+}
+FileSet {
+  Name = "Linux All"
+  Include {
+    Options {
+      Signature = MD5 # calculate md5 checksum per file
+      One FS = No     # change into other filessytems
+      FS Type = ext2  # filesystems of given types will be backed up
+      FS Type = ext3  # others will be ignored
+      FS Type = ext4
+      FS Type = xfs
+      FS Type = zfs
+      FS Type = reiserfs
+      FS Type = jfs
+      FS Type = btrfs
+    }
+    File = /
+  }
+  # Things that usually have to be excluded
+  # You have to exclude /var/lib/bareos/storage
+  # on your bareos server
+  Exclude {
+    File = /var/lib/bareos
+    File = /var/lib/bareos/storage
+    File = /proc
+    File = /tmp
+    File = /.journal
+    File = /.fsck
+  }
+
+}
+# fileset just to backup some files for selftest
+FileSet {
+  Name = "SelfTest"
+  Include {
+    Options {
+      Signature = MD5 # calculate md5 checksum per file
+    }
+    File = "/usr/sbin"
+  }
+}
+
+Schedule {
+  Name = "WeeklyCycle"
+  Run = Full 1st sat at 21:00                   # (#04)
+  Run = Differential 2nd-5th sat at 21:00       # (#07)
+  Run = Incremental mon-fri at 21:00            # (#10)
+}
+
+# This schedule does the catalog. It starts after the WeeklyCycle
+Schedule {
+  Name = "WeeklyCycleAfterBackup"
+  Run = Full mon-fri at 21:10
+}
+FileSet {
+  Name = "Catalog"
+  Include {
+    Options {
+      signature = MD5
+    }
+    File = "/var/lib/bareos/bareos.sql" # database dump
+    File = "/etc/bareos"                   # configuration
+  }
+}
+#
+# Full Pool definition
+#
+Pool {
+  Name = Full
+  Pool Type = Backup
+  Recycle = yes                       # Bareos can automatically recycle Volumes
+  AutoPrune = yes                     # Prune expired volumes
+  Volume Retention = 365 days         # How long should the Full Backups be kept? (#06)
+  Maximum Volume Bytes = 50G          # Limit Volume size to something reasonable
+  Maximum Volumes = 100               # Limit number of Volumes in Pool
+  Label Format = "Full-"              # Volumes will be labeled "Full-<volume-id>"
+}
+#
+# Differential Pool definition
+#
+Pool {
+  Name = Differential
+  Pool Type = Backup
+  Recycle = yes                       # Bareos can automatically recycle Volumes
+  AutoPrune = yes                     # Prune expired volumes
+  Volume Retention = 90 days          # How long should the Differential Backups be kept? (#09)
+  Maximum Volume Bytes = 10G          # Limit Volume size to something reasonable
+  Maximum Volumes = 100               # Limit number of Volumes in Pool
+  Label Format = "Differential-"      # Volumes will be labeled "Differential-<volume-id>"
+}
+
+#
+# Incremental Pool definition
+#
+Pool {
+  Name = Incremental
+  Pool Type = Backup
+  Recycle = yes                       # Bareos can automatically recycle Volumes
+  AutoPrune = yes                     # Prune expired volumes
+  Volume Retention = 30 days          # How long should the Incremental Backups be kept?  (#12)
+  Maximum Volume Bytes = 1G           # Limit Volume size to something reasonable
+  Maximum Volumes = 100               # Limit number of Volumes in Pool
+  Label Format = "Incremental-"       # Volumes will be labeled "Incremental-<volume-id>"
+}
+
+#
+# Scratch pool definition
+#
+Pool {
+  Name = Scratch
+  Pool Type = Backup
+}

@@ -1,0 +1,11 @@
+#
+# Bareos User Agent (or Console) Configuration File
+#
+
+Director {
+  Name = {{ director_hostname }}-dir
+  DIRport = 9101
+  address = {{ director_hostname }}
+  Password = "{{ console_passwd }}"
+}
+

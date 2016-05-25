@@ -1,0 +1,50 @@
+Storage {                             # definition of myself
+  Name = {{ ansible_hostname }}-sd
+  Maximum Concurrent Jobs = 20
+
+  # remove comment from "Plugin Directory" to load plugins from specified directory.
+  # if "Plugin Names" is defined, only the specified plugins will be loaded,
+  # otherwise all storage plugins (*-sd.so) from the "Plugin Directory".
+  #
+  # Plugin Directory = /usr/lib/bareos/plugins
+  # Plugin Names = ""
+}
+#
+# List Directors who are permitted to contact Storage daemon
+#
+Director {
+  Name = {{ director_hostname }}-dir
+  Password = "{{ storage_passwd }}"
+}
+
+#
+# Restricted Director, used by tray-monitor to get the
+#   status of the storage daemon
+#
+Director {
+  Name = {{ director_hostname }}-mon
+  Password = "{{ storage_restrict_passwd }}"
+  Monitor = yes
+}
+#
+# Devices supported by this Storage daemon
+# To connect, the Director's bareos-dir.conf must have the same Name and MediaType.
+#
+Device {
+  Name = FileStorage
+  Media Type = File
+  Archive Device = /var/lib/bareos/storage
+  LabelMedia = yes;                   # lets Bareos label unlabeled media
+  Random Access = yes;
+  AutomaticMount = yes;               # when device opened, read it
+  RemovableMedia = no;
+  AlwaysOpen = no;
+}
+#
+# Send all messages to the Director,
+# mount messages also are sent to the email address
+#
+Messages {
+  Name = Standard
+  director = {{ director_hostname }}-dir = all
+}

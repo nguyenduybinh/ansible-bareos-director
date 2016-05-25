@@ -1,0 +1,58 @@
+---
+# tasks file for bareos
+- name: add bareos repo
+  apt_repository: repo="deb http://download.bareos.org/bareos/release/{{ bareos_version }}/{{ distro }}/ /" state=present update_cache=yes
+- name: add bareoss key
+  apt_key: url="http://download.bareos.org/bareos/release/{{ bareos_version }}/{{ distro }}/Release.key" state=present
+- name: install packages
+  apt: name={{ item }} state=present update_cache=yes
+  with_items:
+    - bareos
+    - bareos-database-mysql
+    - mysql-server
+
+- name: enable mysql service
+  service: name=mysql state=started enabled=yes
+
+###config service
+- name: config bareos-dir
+  template: src=bareos-dir.conf.j2 dest=/etc/bareos/bareos-dir.conf owner=bareos group=bareos mode=0640
+  notify: restart bareos-dir
+- name: config bareos-fd for director
+  template: src=bareos-fd.conf.j2 dest=/etc/bareos/bareos-fd.conf owner=root group=bareos mode=0640
+  notify: restart bareos-fd
+- name: config bareos-sd for director
+  template: src=bareos-sd.conf.j2 dest=/etc/bareos/bareos-sd.conf owner=bareos group=bareos mode=0640
+  notify: restart bareos-sd
+- name: config bconsole
+  template: src=bconsole.conf.j2 dest=/etc/bareos/bconsole.conf owner=root group=bareos mode=0640
+  notify: restart bareos-dir
+- name: config tray-monitor
+  template: src=tray-monitor.conf.j2 dest=/etc/bareos/tray-monitor.conf owner=root group=bareos mode=0640
+  notify: restart bareos-dir
+
+#- name: create .my.cnf file
+#  copy: src=.my.cnf dest=/root/.my.cnf
+# create bareos database and tables
+- stat: path=/var/lib/mysql/bareos
+  register: database_dump
+- name: create bareos database
+  shell: /usr/lib/bareos/scripts/create_bareos_database
+  when: database_dump.stat.exists == false
+- name: create tables
+  shell: /usr/lib/bareos/scripts/make_bareos_tables
+  when: database_dump.stat.exists == false
+- name: grant privileges
+  shell: /usr/lib/bareos/scripts/grant_bareos_privileges
+  when: database_dump.stat.exists == false
+- name: update bareos database's table
+  shell: /usr/lib/bareos/scripts/update_bareos_tables
+  when: database_dump.stat.exists == true
+
+###
+- name: start and enable service
+  service: name={{ item }} state=started enabled=yes
+  with_items:
+    - bareos-dir
+    - bareos-fd
+    - bareos-sd

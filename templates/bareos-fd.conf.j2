@@ -1,0 +1,30 @@
+FileDaemon {                          # definition of myself
+  Name = {{ director_hostname }}-fd
+  Maximum Concurrent Jobs = 20
+
+  # remove comment from "Plugin Directory" to load plugins from specified directory.
+  # if "Plugin Names" is defined, only the specified plugins will be loaded,
+  # otherwise all storage plugins (*-fd.so) from the "Plugin Directory".
+  #
+  # Plugin Directory = /usr/lib/bareos/plugins
+  # Plugin Names = ""
+
+
+  # if compatible is set to yes, we are compatible with bacula
+  # if set to no, new bareos features are enabled which is the default
+  # compatible = yes
+}
+Director {
+  Name = {{ director_hostname }}-dir
+  Password = "{{ client_passwd }}"
+}
+Director {
+  Name = {{ director_hostname }}-mon
+  Password = "{{ client_restrict_passwd }}"
+  Monitor = yes
+}
+Messages {
+  Name = Standard
+  director = {{ director_hostname }}-dir = all, !skipped, !restored
+}
+

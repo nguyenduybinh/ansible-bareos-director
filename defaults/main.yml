@@ -1,0 +1,25 @@
+---
+# defaults file for bareos
+distro: xUbuntu_14.04
+bareos_version: latest
+mysql_passwd: binh
+console_passwd: nguyenduybinh
+client_passwd: nguyenduybinh
+storage_passwd: nguyenduybinh
+director_restrict_passwd: nguyenduybinh
+client_restrict_passwd: nguyenduybinh
+storage_restrict_passwd: nguyenduybinh
+clients: 
+     - hostname: client1
+       address: 192.168.98.102
+#     - hostname:
+#       address:
+#storages:
+#     - hostname: storage
+#       address: 192.168.98.101
+device_type: FileStorage
+media_type: File 
+catalog_name: MyCatalog
+db_driver: mysql
+director_hostname: master
+director_address: 192.168.98.100

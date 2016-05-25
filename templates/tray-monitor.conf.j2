@@ -1,0 +1,30 @@
+#
+# Bareos Tray Monitor Configuration File
+#
+
+Monitor {
+  Name = {{ director_hostname }}-mon
+  Password = " {{ director_restrict_passwd }}"         # password for the Directors
+  RefreshInterval = 30 seconds
+}
+
+Client {
+  Name = {{ director_hostname }}-fd
+  Address = master
+  FDPort = 9102
+  Password = "{{ client_restrict_passwd }}"          # password for FileDaemon
+}
+
+Storage {
+  Name = {{ director_hostname }}-sd
+  Address = master
+  SDPort = 9103
+  Password = "{{ storage_restrict_passwd }}"          # password for StorageDaemon
+}
+
+Director {
+  Name = {{ director_hostname }}-dir
+  DIRport = 9101
+  address = master
+}
+
